@@ -1,0 +1,1 @@
+{"version":3,"file":"agar-io.d.ts","sourceRoot":"","sources":["../../src/worlds/agar-io.ts"],"names":[],"mappings":"AAAA,OAAO,OAAO,MAAM,SAAS,CAAC;AAM9B,cAAM,SAAU,SAAQ,OAAO;gBACf,IAAI,EAAE,MAAM,EAAE,CAAC,EAAE,MAAM,EAAE,CAAC,EAAE,MAAM;IAWrC,OAAO,CAAC,GAAG,EAAE,MAAM,GAAG,IAAI;CAqBtC;AAED,eAAe,SAAS,CAAC"}

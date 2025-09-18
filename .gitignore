@@ -64,5 +64,4 @@
 node_modules
 packages/shared/dist
 .idea
-dist
 _OLD
