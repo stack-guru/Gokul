@@ -74,8 +74,8 @@ class IOWorld implements WorldInterface {
     //--------------------------------------------------------------------------------------------------------------
     //--------------------------------------------------------------------------------------------------------------
     GetNETUnit(obj: UnitObject): number[] {//Simple network Array of Data (Ints)
-        return [obj.type, Math.floor(obj.x), Math.floor(obj.y), Math.floor(obj.z), Math.floor(obj.r),
-            Math.floor(obj.w), Math.floor(obj.h), Math.floor(obj.radius), obj.angle,
+        return [obj.type, obj.x, obj.y, Math.floor(obj.z), Math.floor(obj.r),
+            obj.w, obj.h, obj.radius, obj.angle,
             Math.floor(obj.hp), Math.floor(obj.max_hp), Math.floor(obj.tx), Math.floor(obj.ty),
             obj.color,obj.isLead ? 1 : 0, obj.boost, obj.bright ?? 0, obj.prevUnitId === undefined ? -1 : obj.prevUnitId];
     }
