@@ -474,13 +474,15 @@ function onUpdate(pid: number, data: any){
                   
                   // Set width to distance, height to standard height
                   // This creates a stretched effect between segments
+                  snakeObject.targetWidth = undefined;
+                  snakeObject.targetHeight = undefined;
                   if(prevSegment.isLead) {
-                      snakeObject.targetWidth = width;
-                      snakeObject.targetHeight = height;
+                      snakeObject.width = width;
+                      snakeObject.height = height;
                   } else {
-                      snakeObject.targetWidth = width + dist - (radius / 4);
+                      snakeObject.width = width + dist - (radius / 4);
                       snakeObject.GLOW.width = (width + Math.max(dist, width)) * 2;
-                      snakeObject.targetHeight = height;
+                      snakeObject.height = height;
 
                       // Update anchor based on current width to avoid jarring changes
                       if (snakeObject.width > radius) {
@@ -544,8 +546,16 @@ function onUpdate(pid: number, data: any){
               snakeObject.SEGMENT_INDEX = segmentIndex;
               snakeObject.BOOST_ACTIVE = true;
 
-              // Base glow intensity
-              const baseIntensity = isLead ? 0.2 : 0.6;
+              // Base glow intensity with head-to-tail gradient
+              let baseIntensity;
+              if (isLead) {
+                  baseIntensity = 0; // Disable glow for head
+              } else {
+                  // Gradient from 0.2 (near head) to 0.8 (at tail)
+                  // Higher segmentIndex = further from head = more intense
+                  const intensityGradient = 0.2 + (segmentIndex * 0.04);
+                  baseIntensity = Math.min(0.8, intensityGradient); // Cap at 0.8
+              }
               snakeObject.GLOW_TARGET_ALPHA = baseIntensity;
               snakeObject.GLOW_ANIMATING = true;
 
