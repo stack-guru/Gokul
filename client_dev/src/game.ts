@@ -1,4 +1,4 @@
-import { Texture, Sprite, Container, TilingSprite, Graphics, TextStyle, Text } from "pixi.js";
+import { Texture, Sprite, Container, TilingSprite, Graphics, TextStyle, Text, NineSliceSprite } from "pixi.js";
 import { initAssets } from "./asset";
 import { setupWebsocket } from "./websocket";
 import { app as PIXIApp } from "./main";
@@ -17,6 +17,8 @@ import {
 import { HEAD_EYES } from "./constant";
 import { GameState } from "./gameState";
 
+function RandInt(n: number) { return Math.floor(Math.random() * n); }
+
 function CreateCircle(texture: Texture, x: number, y: number, z: number, scale = 1, rot = 0) {
     GameState.gId++;
     const sprite = new Sprite(texture);
@@ -29,6 +31,44 @@ function CreateCircle(texture: Texture, x: number, y: number, z: number, scale =
     GameState.PIXICam.addChild(sprite);
 
     // sprite.REMOVE = 0;//flag to remove
+    return sprite;
+}
+
+function CreateSegment(texture: Texture, x: number, y: number, z: number, w: number, h: number, scale=1, rot=0) {
+    GameState.gId++;
+
+    // Use NineSliceSprite for scalable circular segments without pixelation
+    // Define slice center - for circular textures, use center point
+    const textureSize = texture.width || 512; // fallback if width not available
+    const sliceSize = texture.width / 2; // quarter of texture for slice
+
+    const sprite = new NineSliceSprite(
+        {
+            texture,
+            leftWidth: sliceSize,
+            topHeight: sliceSize,
+            rightWidth: sliceSize,
+            bottomHeight: sliceSize,
+            width: textureSize * scale * 2,
+            height: textureSize * scale
+        }
+    );
+
+    const radius = h / 2;
+    const farPivot = w - radius
+    sprite.anchor.set(farPivot / w, 0.5); // Set anchor point to the center for rotation/scaling around the center
+    sprite.position.set(x, y); // Set x and y coordinates
+
+    // Instead of scaling the sprite, set the actual width/height
+    // This will use 9-slice scaling internally
+    const baseSize = textureSize;
+    sprite.width = baseSize * scale;
+    sprite.height = baseSize * scale;
+
+    sprite.rotation = rot; // Rotate as needed
+    sprite.zIndex = z; // Set z-index for layering
+    GameState.PIXICam.addChild(sprite);
+
     return sprite;
 }
 
@@ -78,6 +118,9 @@ function CleanGroupObj(Group: any, sGroup: any) {
         if (obj.hasOwnProperty("GLOW")) {//units have glow
             obj.GLOW.destroy();
         }
+        if (obj.hasOwnProperty("shadow")) {//dynamics (food) have shadow glow
+            obj.shadow.destroy();
+        }
 
         if (obj && typeof (obj as any).destroy === "function") {
             obj.destroy();
@@ -87,106 +130,173 @@ function CleanGroupObj(Group: any, sGroup: any) {
 }
 
 export function process() {
-    // for (let key in GameState.Objects) {
-    //     if (GameState.Objects.hasOwnProperty(key)) {
-    //         let obj = GameState.Objects[key];
-    //         //obj.rotation += 0.01; // Rotate the square
-    //     }
-    // }
+  // 1) Move dynamics toward tx/ty
+  let id: string, obj: any;
 
-    // Get the global mouse position
-    // const pos = PIXIApp.renderer.events.pointer.global;
-    // const mx = Math.floor(pos.x)
-    // const my = Math.floor(pos.y)
+  for (id in GameState.gameObjects.dynamics) {
+    if (!GameState.gameObjects.dynamics.hasOwnProperty(id)) continue;
+    const dyn = GameState.gameObjects.dynamics[id];
 
-    //Update Objects to tx/ty
-    let id, obj;
-    for (id in GameState.gameObjects.dynamics) {
-        if (GameState.gameObjects.dynamics.hasOwnProperty(id)) {
-            obj = GameState.gameObjects.dynamics[id];
-            obj.x = calculateLerp(obj.x, obj.tx, GameState.LERPP);
-            obj.y = calculateLerp(obj.y, obj.ty, GameState.LERPP);
-            //if(obj.TYPE > 8){ obj.angle += obj.SPIN; }
+    dyn.x = calculateLerp(dyn.x, dyn.tx, GameState.LERPP);
+    dyn.y = calculateLerp(dyn.y, dyn.ty, GameState.LERPP);
+
+    // NEW: keep shadow on the dynamic item (your original behavior)
+    if (dyn.shadow) {
+      dyn.shadow.x = dyn.x;
+      dyn.shadow.y = dyn.y;
+    }
+  }
+
+  // 2) Move units toward tx/ty + keep eyes & glow synced
+  for (id in GameState.gameObjects.units) {
+    if (!GameState.gameObjects.units.hasOwnProperty(id)) continue;
+    obj = GameState.gameObjects.units[id];
+
+    // position lerp
+    obj.x = calculateLerp(obj.x, obj.tx, GameState.LERPP);
+    obj.y = calculateLerp(obj.y, obj.ty, GameState.LERPP);
+
+    // NEW: smooth width/height toward target (kept gentle like your original)
+    if (obj.targetWidth !== undefined) {
+      obj.width = calculateLerp(obj.width, obj.targetWidth, GameState.LERPP * 0.5);
+    }
+    if (obj.targetHeight !== undefined) {
+      obj.height = calculateLerp(obj.height, obj.targetHeight, GameState.LERPP * 0.5);
+    }
+
+    // existing: keep eyes on the head and rotate toward input
+    if (obj.EYES !== null) {
+      obj.EYES.x = obj.x;
+      obj.EYES.y = obj.y;
+    }
+
+    obj.onViewUpdate?.();
+
+    if (obj.EYES1 !== null) {
+      const rxy = rotate_by_pivot(obj.x, obj.y, obj.rotation, obj.width / 3.5, -obj.width / 5);
+      obj.EYES1.x = rxy[0];
+      obj.EYES1.y = rxy[1];
+      if (GameState.INPUT) {
+        obj.EYES1.rotation = Math.atan2(-GameState.INPUT[1], -GameState.INPUT[0]);
+      }
+      obj.EYES1.onViewUpdate?.();
+    }
+
+    if (obj.EYES2 !== null) {
+      const lxy = rotate_by_pivot(obj.x, obj.y, obj.rotation, obj.width / 3.5, obj.width / 5);
+      obj.EYES2.x = lxy[0];
+      obj.EYES2.y = lxy[1];
+      if (GameState.INPUT) {
+        obj.EYES2.rotation = Math.atan2(-GameState.INPUT[1], -GameState.INPUT[0]);
+      }
+      obj.EYES2.onViewUpdate?.();
+    }
+
+    // existing: keep glow at segment; NEW: animate alpha toward target
+    if (obj.GLOW) {
+      obj.GLOW.x = obj.x;
+      obj.GLOW.y = obj.y;
+
+      if (obj.GLOW_ANIMATING) {
+        const glowSpeed = 0.1; // from your original snippet
+        const currentAlpha = obj.GLOW.alpha ?? 0;
+        const targetAlpha = obj.GLOW_TARGET_ALPHA ?? 0;
+
+        if (Math.abs(currentAlpha - targetAlpha) < 0.01) {
+          obj.GLOW.alpha = targetAlpha;
+          obj.GLOW_ANIMATING = false;
+          if (targetAlpha === 0) obj.GLOW.visible = false;
+        } else {
+          obj.GLOW.visible = true;
+          obj.GLOW.alpha = calculateLerp(currentAlpha, targetAlpha, glowSpeed);
         }
+      }
     }
+  }
 
-    for (id in GameState.gameObjects.units) {
-        if (GameState.gameObjects.units.hasOwnProperty(id)) {
-            obj = GameState.gameObjects.units[id];
-            obj.x = calculateLerp(obj.x, obj.tx, GameState.LERPP);
-            obj.y = calculateLerp(obj.y, obj.ty, GameState.LERPP);
-            if (obj.EYES !== null) { obj.EYES.x = obj.x; obj.EYES.y = obj.y; }
-            // const offset = obj.width / 4;
-            obj.onViewUpdate();
-            if (obj.EYES1 !== null) {
-                const rxy = rotate_by_pivot(obj.x, obj.y, obj.rotation, obj.width / 3.5, -obj.width / 5);
-                obj.EYES1.x = rxy[0];//obj.x + Math.cos(obj.rotation - 0.85) * obj.width/2 * 0.60;
-                obj.EYES1.y = rxy[1];//obj.y + Math.sin(obj.rotation - 0.85) * obj.height/2 * 0.60;
-                if (GameState.INPUT) {
-                    obj.EYES1.rotation = Math.atan2(-GameState.INPUT[1], -GameState.INPUT[0]);
-                }
-                obj.EYES1.onViewUpdate();
+  // 3) Cleanup removed IDs (unchanged)
+  if (GameState.prevData) {
+    CleanGroupObj(GameState.gameObjects.dynamics, GameState.prevData.dynamics);
+    CleanGroupObj(GameState.gameObjects.units, GameState.prevData.units);
+  }
 
-            }
-            if (obj.EYES2 !== null) {
-                const lxy = rotate_by_pivot(obj.x, obj.y, obj.rotation, obj.width / 3.5, obj.width / 5);
-                obj.EYES2.x = lxy[0];//obj.x + Math.cos(obj.rotation - 0.85) * obj.width/2 * 0.60;
-                obj.EYES2.y = lxy[1];//obj.y + Math.sin(obj.rotation - 0.85) * obj.height/2 * 0.60;
-                if (GameState.INPUT) {
-                    obj.EYES2.rotation = Math.atan2(-GameState.INPUT[1], -GameState.INPUT[0]);
-                }
-                obj.EYES2.onViewUpdate();
-            }
+  // 4) Camera (unchanged)
+  GameState.PIXICam.pivot.x = calculateLerp(GameState.PIXICam.pivot.x, GameState.pivotX, 0.1);
+  GameState.PIXICam.pivot.y = calculateLerp(GameState.PIXICam.pivot.y, GameState.pivotY, 0.1);
+  GameState.PIXICam.x = PIXIApp.screen.width / 2;
+  GameState.PIXICam.y = PIXIApp.screen.height / 2;
 
-            obj.GLOW.x = obj.x;
-            obj.GLOW.y = obj.y;
-        }
-    }
+  // 5) Background tiling (unchanged)
+  const btk = 1024;
+  const vx = GameState.PIXICam.pivot.x - GameState.ViewW / 2;
+  const vy = GameState.PIXICam.pivot.y - GameState.ViewH / 2;
+  const ox = Math.floor(vx / btk);
+  const oy = Math.floor(vy / btk);
 
-    //Clean up removed Ids
-    if (GameState.prevData) {
-        CleanGroupObj(GameState.gameObjects.dynamics, GameState.prevData.dynamics);
-        CleanGroupObj(GameState.gameObjects.units, GameState.prevData.units);
-    }
-    //GameState.PIXICam.x++
-    //GameState.PIXICam.x = calculateLerp(GameState.PIXICam.x, CX , 0.1);
-    //GameState.PIXICam.y = calculateLerp(GameState.PIXICam.y, CY , 0.1);
-    GameState.PIXICam.pivot.x = calculateLerp(GameState.PIXICam.pivot.x, GameState.pivotX, 0.1);
-    GameState.PIXICam.pivot.y = calculateLerp(GameState.PIXICam.pivot.y, GameState.pivotY, 0.1);
-    GameState.PIXICam.x = PIXIApp.screen.width / 2;
-    GameState.PIXICam.y = PIXIApp.screen.height / 2;
-
-    //console.log(CX);
-    //CX = -obj[1] + PIXIApp.screen.width / 2;
-    //CY = -obj[2] + PIXIApp.screen.height / 2;
-
-    //GameState.PIXICam.x = -player.x + app.screen.width / 2;
-    //GameState.PIXICam.y = -player.y + app.screen.height / 2;
-
-    const btk = 1024;//70;//background tilesize
-    const vx = GameState.PIXICam.pivot.x - GameState.ViewW / 2;
-    const vy = GameState.PIXICam.pivot.y - GameState.ViewH / 2;
-    const ox = Math.floor(vx / btk);
-    const oy = Math.floor(vy / btk);
-
-    //GameState.PIXITiledBK.tilePosition.x = GameState.PIXICam.x;//-GameState.PIXICam.left;
-    //GameState.PIXITiledBK.tilePosition.y = GameState.PIXICam.y;//-GameState.PIXICam.top;
-    GameState.PIXITiledBK.tilePosition.x = (ox * btk) - vx;//-GameState.PIXICam.left;
-    GameState.PIXITiledBK.tilePosition.y = (oy * btk) - vy;//-GameState.PIXICam.top;
-    GameState.PIXITiledBK.x = GameState.PIXICam.pivot.x - GameState.ViewW / 2;//GameState.PIXICam.left;
-    GameState.PIXITiledBK.y = GameState.PIXICam.pivot.y - GameState.ViewH / 2;//GameState.PIXICam.top;
-    //GameState.PIXITiledBK.width = innerWidth / GameState.PIXICam.scale.x;
-    //GameState.PIXITiledBK.height = innerHeight / GameState.PIXICam.scale.y;
-    //console.log([GameState.PIXICam.x, GameState.PIXICam.pivot.x, GameState.pivotX, (GameState.PIXICam.pivot.x - GameState.pivotX)])
+  GameState.PIXITiledBK.tilePosition.x = (ox * btk) - vx;
+  GameState.PIXITiledBK.tilePosition.y = (oy * btk) - vy;
+  GameState.PIXITiledBK.x = GameState.PIXICam.pivot.x - GameState.ViewW / 2;
+  GameState.PIXITiledBK.y = GameState.PIXICam.pivot.y - GameState.ViewH / 2;
 }
 
-export function onUpdate(pId: number, data: any) {
-    GameState.prevData = data; //SAVE
-    let obj, id;
-    const fspeed = 0.1;
+
+type UnitTuple = number[];
+
+interface DecodedUnit {
+  type: number;
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  width: number;
+  height: number;
+  angle: number;
+  radius: number;
+  hp: number;
+  maxHP: number;
+  targetX: number;
+  targetY: number;
+  colorIndex: number;
+  isLead: number;
+  boost: number;
+  brightness: number;     // 0..n
+  prevUnitId: number;     // -1 if none
+}
+
+function decodeNetworkUnit(unit: UnitTuple): DecodedUnit {
+  const [type, x, y, z, r, width, height, radius, angle, hp, maxHP, targetX, targetY, colorIndex, isLead, boost, brightness, prevUnitId] = unit;
+
+  return {
+    type,
+    x,
+    y,
+    z,
+    r,
+    width,
+    height,
+    radius,
+    angle,
+    hp,
+    maxHP,
+    targetX,
+    targetY,
+    colorIndex,
+    isLead,
+    boost,
+    brightness,
+    prevUnitId
+  }
+}
+
+// ---- Main update -------------------------------------------------------------
+
+function onUpdate(pid: number, data: any){
+    GameState.prevData = data;
+    let networkObject, id;
+    let fadeSpeed = 0.1;
 
     //MATCH SERVER COLORS
-    const COLORS = [
+    let COLORS =  [
         rgbToHex(255, 255, 255), // original white
         rgbToHex(255, 182, 193), // light pink
         rgbToHex(173, 216, 230), // light blue
@@ -198,7 +308,7 @@ export function onUpdate(pId: number, data: any) {
         rgbToHex(255, 192, 203), // pink
         rgbToHex(152, 251, 152)  // pale green
     ];
-    const COLORS_RGB = [
+    let COLORS_RGB =  [
         [255, 255, 255], // original white
         [255, 182, 193], // light pink
         [173, 216, 230], // light blue
@@ -213,259 +323,329 @@ export function onUpdate(pId: number, data: any) {
 
     for (id in data.dynamics) {
         if (data.dynamics.hasOwnProperty(id)) {
-            obj = data.dynamics[id];
-            // if (!GameState.gameObjects.dynamics[id]) {
-            //     GameState.gameObjects.dynamics[id] = {}; // or create the right object type
-            // }
-            // console.log('dynamics obj = ', obj);
+            networkObject = data.dynamics[id];
+            const [type, x, y, z, r, width, height, radius, angle, color] = networkObject;
 
-            if (GameState.gameObjects.dynamics.hasOwnProperty(id) && GameState.gameObjects.dynamics[id]) {
-                const foodObj = GameState.gameObjects.dynamics[id];
+            if (GameState.gameObjects.dynamics.hasOwnProperty(id)) {
+                let foodObject = GameState.gameObjects.dynamics[id];
+                foodObject.tx = x;
+                foodObject.ty = y;
+                foodObject.width = width * 0.25;
+                foodObject.height = height * 0.25;
 
-                foodObj.tx = obj[1];
-                foodObj.ty = obj[2];
-                foodObj.width = obj[5];
-                foodObj.height = obj[6];
+                foodObject.shadow.tx = x;
+                foodObject.shadow.ty = y;
 
-                //fade in / out
-                if (foodObj.ADIR === 0) {
-                    foodObj.alpha -= fspeed;
-                    if (foodObj.alpha < 0.2) {
-                        foodObj.alpha = 0.2;
-                        foodObj.ADIR = 1;
-                    }
+                // Animate shadow to random target size
+                if(!foodObject.shadow.targetSize){
+                    // Pick a random target size between 1x and 4.5x
+                    foodObject.shadow.targetSize = width * (0.8 + Math.random() * 1.5);
+                }
+
+                let currentSize = foodObject.shadow.width;
+                let targetSize = foodObject.shadow.targetSize;
+
+                if(Math.abs(currentSize - targetSize) < 1){
+                    // Reached target, pick a new random target
+                    foodObject.shadow.targetSize = width * (0.8 + Math.random() * 1.5);
                 } else {
-                    foodObj.alpha += fspeed;
-                    if (foodObj.alpha > 1) {
-                        foodObj.alpha = 1;
-                        foodObj.ADIR = 0;
+                    // Animate towards target
+                    if(currentSize < targetSize){
+                        foodObject.shadow.width += 1;
+                        foodObject.shadow.height += 1;
+                    } else {
+                        foodObject.shadow.width -= 1;
+                        foodObject.shadow.height -= 1;
                     }
                 }
-            } else {
-                //console.log('CreateCircle ' + obj[0])
-                //console.log(obj)
-                //GameState.gameObjects.dynamics[id] = GFX.add.image(obj[1], obj[2], 'd' + obj[0]);//type
-                GameState.gameObjects.dynamics[id] = CreateCircle(bodyTexture1, obj[1], obj[2], obj[3], 1);
-                //let COLORS =  ["f5e0dc", "f2cdcd", "f5c2e7", "cba6f7", "f38ba8", "eba0ac", "fab387", "f9e2af",
-                //"a6e3a1", "94e2d5", "89dceb", "74c7ec", "89b4fa", "b4befe"];
-                //COLORS = ['EAB999', '00ff88', 'ff4400', '0088ff', 'aa44ff', 'ffaa00']
-                //sprite.alpha = 0.5;
 
-                //{ name: 'Classic', color:  },                { name: 'Neon', color: '#00ff88' },                { name: 'Fire', color: '#ff4400' },
-                //{ name: 'Ocean', color: '#0088ff' },                { name: 'Purple', color: '#aa44ff' },                { name: 'Gold', color: '#ffaa00' }
+                // Use noise-based transparency like candy-item.ts
+                if(!foodObject.animationTime) foodObject.animationTime = 0;
+                if(!foodObject.seed) foodObject.seed = Math.random() * 1000;
 
-                // GameState.gameObjects.dynamics[id].tint = COLORS[randomNumber(COLORS.length - 1)];//rgbToHex(RandInt(256), RandInt(256), RandInt(256));
-                GameState.gameObjects.dynamics[id].tint = COLORS[obj[9]];//index based
-                GameState.gameObjects.dynamics[id].COLOR = GameState.gameObjects.dynamics[id].tint;//Save Base color
-                GameState.gameObjects.dynamics[id].tx = obj[1];
-                GameState.gameObjects.dynamics[id].ty = obj[2];
-                GameState.gameObjects.dynamics[id].width = obj[5]
-                GameState.gameObjects.dynamics[id].height = obj[6];
-                GameState.gameObjects.dynamics[id].TYPE = obj[0];
-                GameState.gameObjects.dynamics[id].alpha = 0.5
-                GameState.gameObjects.dynamics[id].ADIR = randomNumber(1);
+                foodObject.animationTime += 0.1; // Faster animation for more noticeable flicker
 
-                //Always glow
-                //GameState.gameObjects.dynamics[id].filters = [GameState.PIXICam.GLOW_FILTER];//ON GLOW
+                // Create more pronounced flicker using multiple sine waves for complexity
+                let noise1 = Math.sin(foodObject.seed + 4 * foodObject.animationTime);
+                let noise2 = Math.sin(foodObject.seed * 0.7 + 2.5 * foodObject.animationTime);
+                let combinedNoise = (noise1 + noise2 * 0.5) / 1.5; // Combine for more variation
 
-                //GameState.gameObjects.dynamics[id].filters = [new PIXI.filters.BlurFilter(5)]; // Adjust blur amount
-                //GameState.gameObjects.dynamics[id].blendMode = PIXI.BLEND_MODES.ADD;
-                //if(obj[0] < 7){ GameState.gameObjects.dynamics[id].depth = 1; }
-                //else {GameState.gameObjects.dynamics[id].depth = 2;}
+                // Map noise to alpha range 0.3,0.9 for more dramatic flicker
+                let flicker = 0.3 + (combinedNoise + 1) * 0.5 * (0.9 - 0.3);
+                foodObject.alpha = flicker;
+            }
+            else {
+                GameState.gameObjects.dynamics[id] = CreateCircle(bodyTexture4, x, y, z + 1, 1);
+
+                GameState.gameObjects.dynamics[id].shadow = CreateCircle(glowTexture, x, y, z, 1);
+                GameState.gameObjects.dynamics[id].shadow.width = width;
+                GameState.gameObjects.dynamics[id].shadow.height = height;
+                GameState.gameObjects.dynamics[id].shadow.SHADOW_DIR = RandInt(1); // Random starting direction for size animation
+                GameState.gameObjects.dynamics[id].shadow.alpha = 0.15;
+
+                // Use color from server if it's a valid color index, otherwise random
+                let foodColor;
+                if(color >= 0 && color < COLORS.length){
+                    foodColor = COLORS[color];
+                } else {
+                    foodColor = COLORS[RandInt(COLORS.length - 1)];
+                }
+                GameState.gameObjects.dynamics[id].tint = foodColor;
+                GameState.gameObjects.dynamics[id].shadow.tint = foodColor;
+                GameState.gameObjects.dynamics[id].tx = x;
+                GameState.gameObjects.dynamics[id].ty = y;
+                GameState.gameObjects.dynamics[id].width = width * 0.25;
+                GameState.gameObjects.dynamics[id].height = height * 0.25;
+                GameState.gameObjects.dynamics[id].TYPE = type;
+                GameState.gameObjects.dynamics[id].alpha = 0.5;
+                GameState.gameObjects.dynamics[id].ADIR = RandInt(1);
             }
         }
     }
-
-    const gspeed = 0.05;
+    let glowSpeed = 0.1;
     for (id in data.units) {
-        if (data.units.hasOwnProperty(id)) {
-            obj = data.units[id];
-            if (GameState.gameObjects.units.hasOwnProperty(id)) { //update
-                const existingObj = GameState.gameObjects.units[id];
-                existingObj.tx = obj[1];
-                existingObj.ty = obj[2];
-                existingObj.width = obj[5];
-                existingObj.rotation = obj[8];
-                if (obj[14] === 0) {
-                    existingObj.height = obj[6] * 1.4; //stretch
-                } else {
-                    existingObj.height = obj[6];
-                }
-                //                existingObj.rotation = obj[8] +  0.785398  * 2;
+        if(!data.units.hasOwnProperty(id)) continue; 
+        
+      networkObject = data.units[id];
+      const {type, x, y, z, width, height, angle, radius, colorIndex, isLead, boost, brightness, prevUnitId} = decodeNetworkUnit(networkObject);
 
-                if (existingObj.EYES !== null) {
-                    existingObj.EYES.width = obj[5];
-                    existingObj.EYES.height = obj[6];
-                    existingObj.EYES.rotation = obj[8];
-                }
-                if (existingObj.EYES1 !== null) {
-                    existingObj.EYES1.width = obj[5];
-                    existingObj.EYES1.height = obj[6];
-                    existingObj.EYES1.rotation = obj[8];
-                }
-                if (existingObj.EYES2 !== null) {
-                    existingObj.EYES2.width = obj[5];
-                    existingObj.EYES2.height = obj[6];
-                    existingObj.EYES2.rotation = obj[8];
-                }
+      if (GameState.gameObjects.units.hasOwnProperty(id)) {
+          let snakeObject = GameState.gameObjects.units[id];
+          snakeObject.tx = x;
+          snakeObject.ty = y;
+          snakeObject.rotation = angle;
 
-                existingObj.GLOW.width = obj[5] * 2;
-                existingObj.GLOW.height = obj[6] * 2;
-                existingObj.GLOW.rotation = obj[8];
+          if(isLead) {
+              snakeObject.targetWidth = width * 1.1;
+              snakeObject.targetHeight = height;
 
-                if (obj[15] === 1) {// && existingObj.filters === null){
-                    //                    existingObj.filters = [GameState.PIXICam.GLOW_FILTER];//ON GLOW
-                    //console.log("ON")
-                    //fade in / out GLOW
-                    existingObj.GLOW.visible = true;
-                    // existingObj.GLOW.alpha = 1;
-                    if (existingObj.GLOW.tint !== existingObj.tint) {
-                        existingObj.GLOW.tint = existingObj.tint;
-                    }
-                    existingObj.GLOW.tint = existingObj.tint;
-                    if (existingObj.GLOW_DIR === 0) {
-                        existingObj.GLOW.alpha -= gspeed;
-                        if (existingObj.GLOW.alpha < 0.5) {
-                            existingObj.GLOW.alpha = 0.3;
-                            existingObj.GLOW_DIR = 1;
-                        }
-                    }
-                    else {
-                        existingObj.GLOW.alpha += gspeed;
-                        if (existingObj.GLOW.alpha > 1) {
-                            existingObj.GLOW.alpha = 1;
-                            existingObj.GLOW_DIR = 0;
-                        }
-                    }
+              snakeObject.GLOW.tx = x;
+              snakeObject.GLOW.ty = y;
+          } else {
+              // For non-lead segments, set the width to the distance between the previous segment and this one
+              let prevSegment = null;
+              if (data.units.hasOwnProperty(prevUnitId)) {
+                  prevSegment = decodeNetworkUnit(data.units[prevUnitId]);
+              }
+              
+              if (prevSegment) {
+                  let dist = Math.hypot(prevSegment.x - x, prevSegment.y - y);
+                  snakeObject.tx = prevSegment.x;
+                  snakeObject.ty = prevSegment.y;
+                  
+                  // Set width to distance, height to standard height
+                  // This creates a stretched effect between segments
+                  if(prevSegment.isLead) {
+                      snakeObject.targetWidth = width;
+                      snakeObject.targetHeight = height;
+                  } else {
+                      snakeObject.targetWidth = width + dist - (radius / 4);
+                      snakeObject.GLOW.width = (width + Math.max(dist, width)) * 2;
+                      snakeObject.targetHeight = height;
 
-                    //existingObj.alpha = (10 - obj[16]) * 0.2;
-                    //console.log(existingObj.alpha)
-                    const color = COLORS_RGB[obj[13]]
-                    let addAmount: number = obj[16];
-                    if (obj[16] === 0) {
-                        addAmount = 10;
-                    }
-                    if (obj[16] === 1) {
-                        addAmount = 9;
-                    }
-                    if (obj[16] === 2) {
-                        addAmount = 8;
-                    }
-                    if (obj[16] === 3) {
-                        addAmount = 7;
-                    }
-                    if (obj[16] === 4) {
-                        addAmount = 6;
-                    }
-                    existingObj.tint = adjustBrightnessRGB(color[0], color[1], color[2], addAmount * 20 - 200);
-                    //console.log(obj[16])
-                    //let aff = existingObj.GLOW.alpha * 255;
-                    //existingObj.tint = rgbToHex(aff, aff, aff );
+                      // Update anchor based on current width to avoid jarring changes
+                      if (snakeObject.width > radius) {
+                          const farPivot = snakeObject.width - radius;
+                          snakeObject.anchor.set(farPivot / snakeObject.width, 0.5);
+                      }
+                  }
+              } else {
+                  console.log('not found')
+                  // If no previous segment found, fallback to default width
+                  snakeObject.targetWidth = width;
+                  snakeObject.targetHeight = height;
+              }
+          }
 
-                }
-                if (obj[15] === 0) {// && existingObj.filters !== null){
-                    //                    existingObj.filters = null;//OFF
-                    //console.log("OFF")
-                    //existingObj.GLOW.alpha = 0;
-                    if (existingObj.tint !== existingObj.COLOR) {
-                        existingObj.tint = existingObj.COLOR;
-                    }
-                    existingObj.GLOW.visible = false;
-                    //existingObj.alpha = 1;//reset
-                }
+          if(snakeObject.EYES !== null){
+              snakeObject.EYES.width = width * 1.275;
+              snakeObject.EYES.height = height * 1.275;
+              snakeObject.EYES.rotation = angle;
+          }
+          if(snakeObject.EYES1 !== null){
+              snakeObject.EYES1.width = width * 1.375;
+              snakeObject.EYES1.height = height * 1.375;
+              snakeObject.EYES1.rotation = angle;
+          }
+          if(snakeObject.EYES2 !== null){
+              snakeObject.EYES2.width = width * 1.375;
+              snakeObject.EYES2.height = height * 1.375;
+              snakeObject.EYES2.rotation = angle;
+          }
 
-                //console.log(obj[8] - 0.785398  * 2);//45 degrees
-                //let degrees = obj[8] * (180 / Math.PI)
-                if (id === pId.toString()) {
-                    //console.log(degrees)
-                    // Move the camera to center on a specific point (e.g., player's position)
-                    // You'll need to offset by half the screen dimensions to truly center
-                    //cameraX = -obj[1] + PIXIApp.screen.width / 2;
-                    //cameraY = -obj[2] + PIXIApp.screen.height / 2;
-                    //cameraX = obj[1];
-                    //cameraY = obj[2];
-                    GameState.cameraX = -obj[1] + PIXIApp.screen.width / 2;
-                    GameState.cameraY = -obj[2] + PIXIApp.screen.height / 2;
-                    GameState.pivotX = obj[1];
-                    GameState.pivotY = obj[2];
-                    GameState.mySnakeH = obj;
-                    GameState.mySnakeId = pId;
-                    //console.log([cameraX, cameraY]);
-                }
-            } else { // create
-                //console.log('CreateCircle ' + obj[0])
-                //console.log(obj)
-                //GameState.gameObjects.units[id] = GFX.add.image(obj[1], obj[2], 'd' + obj[0]);//type
-                let tempObject: any;
-                if (obj[14] === HEAD_EYES) {//Head/Eyes
-                    tempObject = CreateCircle(headTexture, obj[1], obj[2], obj[3], 1);
-                    if (id === pId.toString()) {//Extra Glow etc
-                        tempObject.EYES = null;
-                        tempObject.EYES1 = CreateCircle(eyeTexture, obj[1], obj[2], obj[3] + 1, 1);
-                        tempObject.EYES1.width = obj[5]; tempObject.EYES1.height = obj[6];
-                        tempObject.EYES2 = CreateCircle(eyeTexture, obj[1], obj[2], obj[3] + 1, 1);
-                        tempObject.EYES2.width = obj[5]; tempObject.EYES2.height = obj[6];
-                    }
-                    else {
-                        tempObject.EYES1 = null; tempObject.EYES2 = null;//non player
-                        tempObject.EYES = CreateCircle(eyesTexture, obj[1], obj[2], obj[3] + 1, 1);
-                        tempObject.EYES.width = obj[5];
-                        tempObject.EYES.height = obj[6];
-                    }
-                }
-                else {
-                    tempObject = CreateCircle(bodyTexture4, obj[1], obj[2], obj[3], 1);
-                    tempObject.EYES = null; tempObject.EYES1 = null; tempObject.EYES2 = null;
-                }
 
-                tempObject.GLOW = CreateCircle(glowTexture, obj[1], obj[2], obj[3] - 1, 1);
-                tempObject.GLOW.alpha = 0.5;
-                tempObject.GLOW_DIR = 0;//RandInt(1);
-                tempObject.GLOW.width = obj[5] * 2;
-                tempObject.GLOW.height = obj[6] * 2;
-                tempObject.GLOW.rotation = obj[8];
-                tempObject.GLOW.alpha = 0;
+          if(boost === 1){
+              snakeObject.GLOW.visible = !isLead;
 
-                //let COLORS =  ["f5e0dc", "f2cdcd", "f5c2e7", "cba6f7", "f38ba8", "eba0ac", "fab387", "f9e2af",
-                //"a6e3a1", "94e2d5", "89dceb", "74c7ec", "89b4fa", "b4befe"];
-                tempObject.tint = COLORS[obj[13]];//index based
-                tempObject.COLOR = tempObject.tint;//Save Base color
-                //COLORS[RandInt(COLORS.length - 1)];//rgbToHex(RandInt(256), RandInt(256), RandInt(256));
+              // Calculate glow intensity based on position in snake
+              let glowIntensity = 0.5; // default
+              if(!isLead) {
+                  // Count total segments for this snake by finding all units with same owner
+                  let ownerId = null;
+                  let segmentPosition = 0;
+                  let totalSegments = 0;
 
-                tempObject.tx = obj[1];
-                tempObject.ty = obj[2];
-                tempObject.width = obj[5];
-                tempObject.height = obj[6];
-                tempObject.TYPE = obj[0];
-                tempObject.rotation = obj[8];
+                  // First, find the owner (head) of this segment
+                  for (let uid in data.units) {
+                      const unit = decodeNetworkUnit(data.units[uid]);
+                      if(unit.isLead === 1) {
+                          // Check if this segment belongs to this head by tracing back
+                          let currentId = id;
+                          let currentUnit = decodeNetworkUnit(data.units[currentId]);
+                          let chainLength = 0;
 
-                GameState.gameObjects.units[id] = tempObject;//save
-                //if(obj[0] < 7){ GameState.gameObjects.units[id].depth = 1; }
-                //else {GameState.gameObjects.units[id].depth = 2;}
-            }
-        }
+                          while(currentUnit && currentUnit.prevUnitId !== -1 && chainLength < 100) {
+                              segmentPosition++;
+                              currentId = currentUnit.prevUnitId.toString();
+                              if(data.units[currentId]) {
+                                  currentUnit = decodeNetworkUnit(data.units[currentId]);
+                                  if(currentUnit.isLead === 1) {
+                                      if(currentId === uid) {
+                                          ownerId = uid;
+                                          break;
+                                      }
+                                  }
+                              } else {
+                                  break;
+                              }
+                              chainLength++;
+                          }
+
+                          if(ownerId) break;
+                      }
+                  }
+
+                  // Count total segments for this snake
+                  if(ownerId) {
+                      for (let uid in data.units) {
+                          const unit = decodeNetworkUnit(data.units[uid]);
+                          // Check if this unit belongs to the same snake
+                          let currentId = uid;
+                          let currentUnit = unit;
+                          let chainLength = 0;
+
+                          while(currentUnit && currentUnit.prevUnitId !== -1 && chainLength < 100) {
+                              currentId = currentUnit.prevUnitId.toString();
+                              if(data.units[currentId]) {
+                                  currentUnit = decodeNetworkUnit(data.units[currentId]);
+                                  if(currentUnit.isLead === 1 && currentId === ownerId) {
+                                      totalSegments++;
+                                      break;
+                                  }
+                              } else {
+                                  break;
+                              }
+                              chainLength++;
+                          }
+                      }
+                  }
+
+                  // Calculate intensity: more intense towards tail
+                  if(totalSegments > 1) {
+                      const tailIntensity = segmentPosition / Math.max(totalSegments - 1, 1);
+                      glowIntensity = 0.1 + (tailIntensity * 0.7); // Range from 0.1 to 0.8
+                  }
+              }
+
+              snakeObject.GLOW_TARGET_ALPHA = glowIntensity;
+              snakeObject.GLOW_ANIMATING = true;
+              // snakeObject.GLOW.width = width * 2;
+              snakeObject.GLOW.height = height * 3;
+              snakeObject.GLOW.rotation = angle;
+
+              let baseColor = COLORS_RGB[colorIndex];
+              let brightnessValue = brightness;
+              if(brightness === 0){brightnessValue = 10;}
+              if(brightness === 1){brightnessValue = 9;}
+              if(brightness === 2){brightnessValue = 8;}
+              if(brightness === 3){brightnessValue = 7;}
+              if(brightness === 4){brightnessValue = 6;}
+
+              let glowColor = parseInt(adjustBrightnessRGB(baseColor[0], baseColor[1], baseColor[2], brightnessValue * 5 - 50).replace('#', ''), 16);
+              snakeObject.GLOW.tint = glowColor;
+              snakeObject.tint = adjustBrightnessRGB(baseColor[0], baseColor[1], baseColor[2], brightnessValue * 5 - 50);
+          }
+          if(boost === 0){
+              snakeObject.GLOW_TARGET_ALPHA = 0;
+              snakeObject.GLOW_ANIMATING = true;
+              if(snakeObject.tint !== snakeObject.COLOR){snakeObject.tint = snakeObject.COLOR;}
+          }
+
+          if(id === pid.toString()){
+              GameState.cameraX = -x + PIXIApp.screen.width / 2;
+              GameState.cameraY = -y + PIXIApp.screen.height / 2;
+              GameState.pivotX = x;
+              GameState.pivotY = y;
+              GameState.mySnakeH = networkObject;
+              GameState.mySnakeId = pid;
+          }
+
+
+      }
+      else {
+          let unitObject: any;
+          if(isLead === 1){
+              unitObject = CreateSegment(bodyTexture4, x, y, z, width, height, 1);
+              if(id === pid.toString()){
+                  unitObject.EYES = null;
+                  unitObject.EYES1 = CreateCircle(eyeTexture, x, y, z + 1, 1);
+                  unitObject.EYES1.width = width * 1.375;
+                  unitObject.EYES1.height = height * 1.375;
+                  unitObject.EYES2 = CreateCircle(eyeTexture, x, y, z + 1, 1);
+                  unitObject.EYES2.width = width * 1.375;
+                  unitObject.EYES2.height = height * 1.375;
+              }
+              else {
+                  unitObject.EYES1 = null;
+                  unitObject.EYES2 = null;
+                  unitObject.EYES = CreateCircle(eyesTexture, x * 2, y * 2, z + 1, 1);
+                  unitObject.EYES.width = width;
+                  unitObject.EYES.height = height;
+              }
+          }
+          else {
+              unitObject = CreateSegment(bodyTexture4, x, y, z, width, height, 1);
+              unitObject.EYES = null;
+              unitObject.EYES1 = null;
+              unitObject.EYES2 = null;
+          }
+
+          const prevSegment = data.units[prevUnitId];
+
+          // Create glow sprite using PNG texture
+          unitObject.GLOW = CreateSegment(glowTexture, prevSegment ? prevSegment.x : x, prevSegment ? prevSegment.y : y, z - 1, width * 2, height * 2, 1);
+          unitObject.GLOW.alpha = 0;
+          unitObject.GLOW_DIR = 0;
+          unitObject.GLOW.width = width * 2;
+          unitObject.GLOW.height = height * 2;
+          unitObject.GLOW.rotation = angle;
+          unitObject.GLOW_TARGET_ALPHA = 0;
+          unitObject.GLOW_ANIMATING = false;
+
+          unitObject.tint = COLORS[colorIndex];
+          unitObject.COLOR = unitObject.tint;
+          unitObject.tx = x;
+          unitObject.ty = y;
+          unitObject.width = width;
+          unitObject.height = height;
+          unitObject.targetWidth = width;
+          unitObject.targetHeight = height;
+          unitObject.TYPE = type;
+          unitObject.rotation = angle;
+
+
+          GameState.gameObjects.units[id] = unitObject;
+      }  
     }
 
-    //Debug
-    //PIXIGfx.clear();
-    if (GameState.DEBUG) {
-        drawDebugRect(data.dynamics)
-        drawDebugRect(data.units)
-
-        // const CellSize = 256;//Match server
-        //        PIXIGfx.lineStyle(2, 0x00FF00); // 2px red border
-        //let vwh = (CellSize * 2) + CellSize;
-        //PIXIGfx.drawRect(pivotX - vwh/2,pivotY - vwh/2, vwh, vwh);
-        //PIXIGfx.drawRect((PIXIApp.screen.width / 2) - vwh/2,(PIXIApp.screen.height / 2) - vwh/2, vwh, vwh);
-
+    if(GameState.DEBUG){
+        drawDebugRect(data.dynamics);
+        drawDebugRect(data.units);
     }
-    //Bounds Always
-    //PIXIGfx.lineStyle(1024, 0x800000); // 2px red border
-    //PIXIGfx.drawRect(-512,-512, MapWH+1024, MapWH+1024);
-    //PIXIGfx.lineStyle(50, 0xFF0000); // 2px red border
-    //PIXIGfx.drawRect(0,0, MapWH, MapWH);
-    //PIXIGfx.circle(MapWH/2,MapWH/2,MapWH/2).fill(0xFF0000).lineStyle(50)
+
+
 }
+
 
 function onResize() {
     const screenWidth = window.innerWidth;

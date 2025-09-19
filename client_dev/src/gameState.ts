@@ -14,7 +14,7 @@ export const GameState = {
     cameraY: 0,
     pivotX: 0,
     pivotY: 0,
-    mySnakeH: null,
+    mySnakeH: null as any,
     mySnakeId: -1,
     LERPP: 0.2,
     DEBUG: false,
