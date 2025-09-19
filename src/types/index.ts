@@ -45,6 +45,7 @@ export interface DynamicObject extends GameObject {
 
 export interface UnitObject extends GameObject {
   isAI: number;
+  EXP: number;
   t_time: number;
   t_current: number;
   color: number;
@@ -54,6 +55,9 @@ export interface UnitObject extends GameObject {
   boost_cooldown: number;
   ox: number;
   oy: number;
+  prevUnitId: number;
+  segmentIndex: number;
+  spacing: number;
   isLead?: boolean;
   bright?: number;
 }
@@ -105,6 +109,7 @@ export interface WorldInterface {
   PlayerSpawn(d: PlayerData): void;
   GetUnit(id: number): UnitObject | null;
   GetView(d: UnitObject): ViewData;
+  RandInt(n: number): number;
 }
 
 export interface PlayerManagerInterface {

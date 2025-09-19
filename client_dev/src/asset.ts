@@ -17,7 +17,9 @@ export async function initAssets() {
     bodyTexture1 = await Assets.load('assets/img/c1.png');
     bodyTexture2 = await Assets.load('assets/img/c2.png');
     bodyTexture3 = await Assets.load('assets/img/c3.png');
-    bodyTexture4 = await Assets.load('assets/img/c4.png');
+    bodyTexture4 = await Assets.load('assets/img/c4r.png');
+    bodyTexture4.source.mipmapFilter = 'linear';
+
     bkTexture = await Assets.load('assets/img/bk.png');
-    glowTexture = await Assets.load('assets/img/c4g.png');
+    glowTexture = await Assets.load('assets/img/c4g2.png');
 }
