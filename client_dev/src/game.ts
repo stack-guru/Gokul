@@ -1,5 +1,5 @@
 import { Texture, Sprite, Container, TilingSprite, Graphics, TextStyle, Text, NineSliceSprite } from "pixi.js";
-import { initAssets } from "./asset";
+import { initAssets, leftEyeTexture, rightEyeTexture } from "./asset";
 import { setupWebsocket } from "./websocket";
 import { app as PIXIApp } from "./main";
 import { rgbToHex, randomNumber, adjustBrightnessRGB, drawDebugRect, calculateLerp } from "./utils";
@@ -156,7 +156,6 @@ export function process() {
     obj.x = calculateLerp(obj.x, obj.tx, GameState.LERPP);
     obj.y = calculateLerp(obj.y, obj.ty, GameState.LERPP);
 
-    // NEW: smooth width/height toward target (kept gentle like your original)
     if (obj.targetWidth !== undefined) {
       obj.width = calculateLerp(obj.width, obj.targetWidth, GameState.LERPP * 0.5);
     }
@@ -164,7 +163,6 @@ export function process() {
       obj.height = calculateLerp(obj.height, obj.targetHeight, GameState.LERPP * 0.5);
     }
 
-    // existing: keep eyes on the head and rotate toward input
     if (obj.EYES !== null) {
       obj.EYES.x = obj.x;
       obj.EYES.y = obj.y;
@@ -172,8 +170,9 @@ export function process() {
 
     obj.onViewUpdate?.();
 
+    const radius = obj.height / 2;
     if (obj.EYES1 !== null) {
-      const rxy = rotate_by_pivot(obj.x, obj.y, obj.rotation, obj.width / 3.5, -obj.width / 5);
+      const rxy = rotate_by_pivot(obj.x, obj.y, obj.rotation, radius * 0.45, -radius * 0.4596);
       obj.EYES1.x = rxy[0];
       obj.EYES1.y = rxy[1];
       if (GameState.INPUT) {
@@ -183,7 +182,7 @@ export function process() {
     }
 
     if (obj.EYES2 !== null) {
-      const lxy = rotate_by_pivot(obj.x, obj.y, obj.rotation, obj.width / 3.5, obj.width / 5);
+      const lxy = rotate_by_pivot(obj.x, obj.y, obj.rotation, radius * 0.45, radius * 0.4596);
       obj.EYES2.x = lxy[0];
       obj.EYES2.y = lxy[1];
       if (GameState.INPUT) {
@@ -205,9 +204,7 @@ export function process() {
         if (Math.abs(currentAlpha - targetAlpha) < 0.01) {
           obj.GLOW.alpha = targetAlpha;
           obj.GLOW_ANIMATING = false;
-          if (targetAlpha === 0) obj.GLOW.visible = false;
         } else {
-          obj.GLOW.visible = true;
           obj.GLOW.alpha = calculateLerp(currentAlpha, targetAlpha, glowSpeed);
         }
       }
@@ -463,13 +460,14 @@ function onUpdate(pid: number, data: any){
               snakeObject.EYES.rotation = angle;
           }
           if(snakeObject.EYES1 !== null){
-              snakeObject.EYES1.width = width * 1.375;
-              snakeObject.EYES1.height = height * 1.375;
+              snakeObject.EYES1.width = radius * 0.9285;
+              snakeObject.EYES1.height = radius * 0.9285;
+              console.log(snakeObject.EYES1.width, snakeObject.EYES1.height);
               snakeObject.EYES1.rotation = angle;
           }
           if(snakeObject.EYES2 !== null){
-              snakeObject.EYES2.width = width * 1.375;
-              snakeObject.EYES2.height = height * 1.375;
+              snakeObject.EYES2.width = radius * 0.9285;
+              snakeObject.EYES2.height = radius * 0.9285;
               snakeObject.EYES2.rotation = angle;
           }
 
@@ -588,12 +586,8 @@ function onUpdate(pid: number, data: any){
               unitObject = CreateSegment(bodyTexture4, x, y, z, width, height, 1);
               if(id === pid.toString()){
                   unitObject.EYES = null;
-                  unitObject.EYES1 = CreateCircle(eyeTexture, x, y, z + 1, 1);
-                  unitObject.EYES1.width = width * 1.375;
-                  unitObject.EYES1.height = height * 1.375;
-                  unitObject.EYES2 = CreateCircle(eyeTexture, x, y, z + 1, 1);
-                  unitObject.EYES2.width = width * 1.375;
-                  unitObject.EYES2.height = height * 1.375;
+                  unitObject.EYES1 = CreateCircle(leftEyeTexture, x, y, z + 1, 1);
+                  unitObject.EYES2 = CreateCircle(rightEyeTexture, x, y, z + 1, 1);
               }
               else {
                   unitObject.EYES1 = null;
