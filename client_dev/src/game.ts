@@ -19,6 +19,15 @@ import { GameState } from "./gameState";
 
 function RandInt(n: number) { return Math.floor(Math.random() * n); }
 
+function brightenColor(baseColor: number[], highlight: number): number[] {
+    const factor = 1 + (highlight * 0.08);
+    return [
+        Math.floor(Math.min(255, Math.max(0, baseColor[0] * factor))),
+        Math.floor(Math.min(255, Math.max(0, baseColor[1] * factor))),
+        Math.floor(Math.min(255, Math.max(0, baseColor[2] * factor)))
+    ];
+}
+
 function CreateCircle(texture: Texture, x: number, y: number, z: number, scale = 1, rot = 0) {
     GameState.gId++;
     const sprite = new Sprite(texture);
@@ -197,16 +206,49 @@ export function process() {
       obj.GLOW.y = obj.y;
 
       if (obj.GLOW_ANIMATING) {
-        const glowSpeed = 0.1; // from your original snippet
+        const glowSpeed = 0.1;
         const currentAlpha = obj.GLOW.alpha ?? 0;
         const targetAlpha = obj.GLOW_TARGET_ALPHA ?? 0;
 
         if (Math.abs(currentAlpha - targetAlpha) < 0.01) {
           obj.GLOW.alpha = targetAlpha;
           obj.GLOW_ANIMATING = false;
+          if (targetAlpha === 0) obj.GLOW.visible = false;
         } else {
+          obj.GLOW.visible = true;
           obj.GLOW.alpha = calculateLerp(currentAlpha, targetAlpha, glowSpeed);
         }
+      }
+
+      // Wave animation for boost effect
+      if (obj.BOOST_ACTIVE && obj.BASE_COLOR && obj.SEGMENT_INDEX !== undefined) {
+        const time = Date.now() / 1000; // Current time in seconds
+        const waveSpeed = 15; // Speed of the wave animation
+        const phaseOffset = 0.8; // Phase offset per segment
+
+        // Calculate sine wave for this segment
+        const highlight = Math.sin(waveSpeed * time - phaseOffset * obj.SEGMENT_INDEX);
+
+        // Brighten the base color based on the wave
+        const brightenedColor = brightenColor(obj.BASE_COLOR, highlight);
+
+        // Validate color values before applying
+        if (brightenedColor.every(c => c >= 0 && c <= 255 && Number.isInteger(c))) {
+          // Apply the animated color to both segment and glow
+          const animatedColor = rgbToHex(brightenedColor[0], brightenedColor[1], brightenedColor[2]);
+          obj.tint = animatedColor;
+
+          // Make glow slightly brighter and more saturated
+          const glowBrightened = brightenColor(brightenedColor, 0.12); // Moderately subtle glow enhancement
+          if (glowBrightened.every(c => c >= 0 && c <= 255 && Number.isInteger(c))) {
+            const glowColor = rgbToHex(glowBrightened[0], glowBrightened[1], glowBrightened[2]);
+            obj.GLOW.tint = glowColor;
+          }
+        }
+
+        // Animate glow alpha with the wave as well
+        const waveAlpha = 0.32 + (highlight + 1) * 0.08; // Range from 0.24 to 0.4 (moderately subtle)
+        obj.GLOW.alpha = calculateLerp(obj.GLOW.alpha, waveAlpha, 0.15);
       }
     }
   }
@@ -475,95 +517,48 @@ function onUpdate(pid: number, data: any){
           if(boost === 1){
               snakeObject.GLOW.visible = !isLead;
 
-              // Calculate glow intensity based on position in snake
-              let glowIntensity = 0.5; // default
+              // Calculate segment index for wave animation
+              let segmentIndex = 0;
               if(!isLead) {
-                  // Count total segments for this snake by finding all units with same owner
-                  let ownerId = null;
-                  let segmentPosition = 0;
-                  let totalSegments = 0;
+                  // Count segments from head to this segment
+                  let currentId = id;
+                  let currentUnit = decodeNetworkUnit(data.units[currentId]);
+                  let chainLength = 0;
 
-                  // First, find the owner (head) of this segment
-                  for (let uid in data.units) {
-                      const unit = decodeNetworkUnit(data.units[uid]);
-                      if(unit.isLead === 1) {
-                          // Check if this segment belongs to this head by tracing back
-                          let currentId = id;
-                          let currentUnit = decodeNetworkUnit(data.units[currentId]);
-                          let chainLength = 0;
-
-                          while(currentUnit && currentUnit.prevUnitId !== -1 && chainLength < 100) {
-                              segmentPosition++;
-                              currentId = currentUnit.prevUnitId.toString();
-                              if(data.units[currentId]) {
-                                  currentUnit = decodeNetworkUnit(data.units[currentId]);
-                                  if(currentUnit.isLead === 1) {
-                                      if(currentId === uid) {
-                                          ownerId = uid;
-                                          break;
-                                      }
-                                  }
-                              } else {
-                                  break;
-                              }
-                              chainLength++;
+                  while(currentUnit && currentUnit.prevUnitId !== -1 && chainLength < 100) {
+                      segmentIndex++;
+                      currentId = currentUnit.prevUnitId.toString();
+                      if(data.units[currentId]) {
+                          currentUnit = decodeNetworkUnit(data.units[currentId]);
+                          if(currentUnit.isLead === 1) {
+                              break;
                           }
-
-                          if(ownerId) break;
+                      } else {
+                          break;
                       }
-                  }
-
-                  // Count total segments for this snake
-                  if(ownerId) {
-                      for (let uid in data.units) {
-                          const unit = decodeNetworkUnit(data.units[uid]);
-                          // Check if this unit belongs to the same snake
-                          let currentId = uid;
-                          let currentUnit = unit;
-                          let chainLength = 0;
-
-                          while(currentUnit && currentUnit.prevUnitId !== -1 && chainLength < 100) {
-                              currentId = currentUnit.prevUnitId.toString();
-                              if(data.units[currentId]) {
-                                  currentUnit = decodeNetworkUnit(data.units[currentId]);
-                                  if(currentUnit.isLead === 1 && currentId === ownerId) {
-                                      totalSegments++;
-                                      break;
-                                  }
-                              } else {
-                                  break;
-                              }
-                              chainLength++;
-                          }
-                      }
-                  }
-
-                  // Calculate intensity: more intense towards tail
-                  if(totalSegments > 1) {
-                      const tailIntensity = segmentPosition / Math.max(totalSegments - 1, 1);
-                      glowIntensity = 0.1 + (tailIntensity * 0.7); // Range from 0.1 to 0.8
+                      chainLength++;
                   }
               }
 
-              snakeObject.GLOW_TARGET_ALPHA = glowIntensity;
+              // Store segment index for wave animation
+              snakeObject.SEGMENT_INDEX = segmentIndex;
+              snakeObject.BOOST_ACTIVE = true;
+
+              // Base glow intensity
+              const baseIntensity = isLead ? 0.2 : 0.6;
+              snakeObject.GLOW_TARGET_ALPHA = baseIntensity;
               snakeObject.GLOW_ANIMATING = true;
-              // snakeObject.GLOW.width = width * 2;
+
               snakeObject.GLOW.height = height * 3;
               snakeObject.GLOW.rotation = angle;
 
+              // Store base colors for wave animation
               let baseColor = COLORS_RGB[colorIndex];
-              let brightnessValue = brightness;
-              if(brightness === 0){brightnessValue = 10;}
-              if(brightness === 1){brightnessValue = 9;}
-              if(brightness === 2){brightnessValue = 8;}
-              if(brightness === 3){brightnessValue = 7;}
-              if(brightness === 4){brightnessValue = 6;}
-
-              let glowColor = parseInt(adjustBrightnessRGB(baseColor[0], baseColor[1], baseColor[2], brightnessValue * 5 - 50).replace('#', ''), 16);
-              snakeObject.GLOW.tint = glowColor;
-              snakeObject.tint = adjustBrightnessRGB(baseColor[0], baseColor[1], baseColor[2], brightnessValue * 5 - 50);
+              snakeObject.BASE_COLOR = baseColor;
+              snakeObject.COLOR = COLORS[colorIndex];
           }
           if(boost === 0){
+              snakeObject.BOOST_ACTIVE = false;
               snakeObject.GLOW_TARGET_ALPHA = 0;
               snakeObject.GLOW_ANIMATING = true;
               if(snakeObject.tint !== snakeObject.COLOR){snakeObject.tint = snakeObject.COLOR;}
