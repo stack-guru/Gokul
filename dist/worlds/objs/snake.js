@@ -13,7 +13,7 @@ class IOSnakeManager {
         this.rad = 16; //32x32 head to start
         //this.slerp = 0.47;//0.4
         //this.slerp = 0.35;//0.4
-        this.slerp = 0.25; //0.4
+        this.slerp = 0.4; //0.4
         this.LevelXP = 50; //100;
         //this.colors =  ["f5e0dc", "f2cdcd", "f5c2e7", "cba6f7", "f38ba8", "eba0ac", "fab387", "f9e2af",
         //"a6e3a1", "94e2d5", "89dceb", "74c7ec", "89b4fa", "b4befe"];
@@ -199,12 +199,12 @@ class IOSnakeManager {
             if (obj.boost && obj.EXP > 100) {
                 //curr.x = this.world.MLerp(curr.x, last.x, this.slerp * 1.2);
                 //curr.y = this.world.MLerp(curr.y, last.y, this.slerp * 1.2);
-                curr.x = this.world.MLerp(curr.x, last.x, this.slerp * 1.5);
-                curr.y = this.world.MLerp(curr.y, last.y, this.slerp * 1.5);
+                curr.x = this.world.MLerp(curr.x, last.x, this.slerp * 1.7);
+                curr.y = this.world.MLerp(curr.y, last.y, this.slerp * 1.7);
             }
             else {
-                curr.x = this.world.MLerp(curr.x, last.x, this.slerp);
-                curr.y = this.world.MLerp(curr.y, last.y, this.slerp);
+                curr.x = this.world.MLerp(curr.x, last.x, this.slerp * 1.2);
+                curr.y = this.world.MLerp(curr.y, last.y, this.slerp * 1.2);
             }
             //            const length = this.getDistance(fromTracer, toTracer);
             //            const segmentRadius = this.radius * (1 - i * 0.015); // Subtle taper

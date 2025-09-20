@@ -77,9 +77,9 @@ class IOWorld {
     //--------------------------------------------------------------------------------------------------------------
     //--------------------------------------------------------------------------------------------------------------
     GetNETUnit(obj) {
-        return [obj.type, Math.floor(obj.x), Math.floor(obj.y), Math.floor(obj.z), Math.floor(obj.r),
+        return [obj.type, obj.x, obj.y, Math.floor(obj.z), Math.floor(obj.r),
             Math.floor(obj.w), Math.floor(obj.h), Math.floor(obj.radius), parseFloat(obj.angle.toFixed(2)),
-            Math.floor(obj.hp), Math.floor(obj.max_hp), Math.floor(obj.tx), Math.floor(obj.ty),
+            Math.floor(obj.hp), Math.floor(obj.max_hp), obj.tx, obj.ty,
             obj.color, obj.isLead ? 1 : 0, obj.boost, obj.bright || 0];
     }
     //------------------------------------------------------------------------------------------------------------------

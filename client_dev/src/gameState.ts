@@ -24,7 +24,7 @@ export const GameState = {
     mDown: 0,
     INPUT: null as any,
     PING: 0 as any,
-    SKIP_MS: false,
+    SKIP_MS: true,
     RENDER_DELAY: 100,
     firstServerTimestamp: 0,
     gameStart: 0,
@@ -42,5 +42,9 @@ export const GameState = {
     camera: {
         x: 0,
         y: 0
+    },
+    viewScreenSize: {
+        width: 512,
+        height: 512
     }
 }

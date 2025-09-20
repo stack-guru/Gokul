@@ -12,6 +12,7 @@
   "dependencies": {
     "canvas": "^3.2.0",
     "msgpackr": "^1.11.5",
+    "pixi-filters": "^6.1.4",
     "pixi.js": "^8.8.1"
   },
   "devDependencies": {

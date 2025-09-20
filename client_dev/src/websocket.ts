@@ -55,7 +55,8 @@ function getCurrentState() {
     } else {
         const baseUpdate = GameState.gameUpdates[base];
         const next = GameState.gameUpdates[base + 1];
-        const r = (serverTime - baseUpdate.t) / (next.t - baseUpdate.t);
+        let r = (serverTime - baseUpdate.t) / (next.t - baseUpdate.t);
+        if (r < 0) r = 0; if (r > 1) r = 1;
         //console.log(r)
 
         const units: { [id: string]: any } = {};

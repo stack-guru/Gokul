@@ -1,35 +1,103 @@
-import { Texture, Sprite, Container, TilingSprite, Graphics, TextStyle, Text } from "pixi.js";
-import { initAssets } from "./asset";
+import { Texture, Sprite, Container, TilingSprite, Graphics, TextStyle, Text, FillGradient } from "pixi.js";
 import { setupWebsocket } from "./websocket";
 import { app as PIXIApp } from "./main";
 import { rgbToHex, randomNumber, adjustBrightnessRGB, drawDebugRect, calculateLerp } from "./utils";
 import {
-    headTexture,
-    eyesTexture,
-    eyeTexture,
+    initAssets,
+    // eyesTexture,
+    // eyeTexture,
     bodyTexture1,
     // bodyTexture2,
     // bodyTexture3,
-    bodyTexture4,
+    // bodyTexture4,
     bkTexture,
-    glowTexture
+    glowTexture,
 } from "./asset";
-import { HEAD_EYES } from "./constant";
+import { HEAD_EYES, MOUSE_CLICKED, MOUSE_NOT_CLICKED, ONE_EYE, BODY_CIRCLE, TEXTURE_CIRCLE, TWO_EYES } from "./constant";
 import { GameState } from "./gameState";
 
-function CreateCircle(texture: Texture, x: number, y: number, z: number, scale = 1, rot = 0) {
+function CreateCircle(type: number, texture: Texture | null, x: number, y: number, z: number, scale = 1, rot = 0, color: string | null = null) {
     GameState.gId++;
-    const sprite = new Sprite(texture);
-    sprite.position.set(x, y); // Set x and y coordinates
-    sprite.anchor.set(0.5); // Set anchor point to the center for rotation/scaling around the center
-    sprite.scale.set(scale); // Double the size
-    sprite.rotation = rot;//Math.PI / 4; // Rotate 45 degrees
-    sprite.zIndex = z; // Lower zIndex
-    //PIXIApp.stage.addChild(sprite);
-    GameState.PIXICam.addChild(sprite);
+    if (type === ONE_EYE) {
+        const gfx = new Graphics();
+        gfx.circle(0, 0, 4).fill("#ffffff");
+        gfx.circle(1, 0, 3).fill("#000000");
+        gfx.position.set(x, y);
+        gfx.scale.set(scale);
+        gfx.rotation = rot;
+        gfx.zIndex = z;
+        GameState.PIXICam.addChild(gfx);
+        return gfx;
+    } else if (type === TWO_EYES) {
+        const gfx = new Graphics();
+        gfx.circle(8, -6, 4).fill("#ffffff");
+        gfx.circle(9, -6, 3).fill("#000000");
+        gfx.circle(8, 6, 4).fill("#ffffff");
+        gfx.circle(9, 6, 3).fill("#000000");
+        gfx.position.set(x, y);
+        gfx.scale.set(scale);
+        gfx.rotation = rot;
+        gfx.zIndex = z;
+        GameState.PIXICam.addChild(gfx);
+        return gfx;
+    } else if (type === TEXTURE_CIRCLE && texture) {
+        const sprite = new Sprite({ texture });
+        sprite.position.set(x, y); // Set x ,and y coordinates
+        sprite.anchor.set(0.5); // Set anchor point to the center for rotation/scaling around the center
+        sprite.scale.set(scale); // Double the size
+        sprite.rotation = rot;//Math.PI / 4; // Rotate 45 degrees
+        sprite.zIndex = z; // Lower zIndex
+        //PIXIApp.stage.addChild(sprite);
+        GameState.PIXICam.addChild(sprite);
 
-    // sprite.REMOVE = 0;//flag to remove
-    return sprite;
+        // sprite.REMOVE = 0;//flag to remove
+        return sprite;
+    }
+
+    const gfx = new Graphics();
+    const baseRadius = 16;
+
+    const baseColor = color ?? "#FFFFFF";
+    const toRGB = (c: string | number) => {
+        if (typeof c === "number") {
+            const r = (c >> 16) & 0xFF;
+            const g = (c >> 8) & 0xFF;
+            const b = c & 0xFF;
+            return [r, g, b] as [number, number, number];
+        }
+        const hex = c.startsWith('#') ? c.slice(1) : c;
+        const num = parseInt(hex, 16);
+        const r = (num >> 16) & 0xFF;
+        const g = (num >> 8) & 0xFF;
+        const b = num & 0xFF;
+        return [r, g, b] as [number, number, number];
+    };
+
+    // body circle
+    const clamp = (v: number) => Math.max(0, Math.min(255, v));
+    const [r, g, b] = toRGB(baseColor);
+    const toHexNumber = (rr: number, gg: number, bb: number) => ((rr & 0xFF) << 16) | ((gg & 0xFF) << 8) | (bb & 0xFF);
+    const dark = toHexNumber(clamp(r - 60), clamp(g - 60), clamp(b - 60));
+    const bright = toHexNumber(clamp(r + 60), clamp(g + 60), clamp(b + 60));
+
+    const colorStops = [dark, bright];
+
+    // Create a fill gradient
+    const gradientFill = new FillGradient(0.5, 0, 0.5, 1);
+
+    // Add the color stops to the fill gradient
+    colorStops.forEach((number, index) => {
+        const ratio = index / colorStops.length;
+        gradientFill.addColorStop(ratio, number);
+    });
+
+    gfx.circle(0, 0, baseRadius).fill(gradientFill);
+    gfx.position.set(x, y);
+    gfx.scale.set(scale);
+    gfx.rotation = rot;
+    gfx.zIndex = z;
+    GameState.PIXICam.addChild(gfx);
+    return gfx;
 }
 
 function rotate_by_pivot(px: number, py: number, pr: number, ox: number, oy: number) {//sets location by rotating around a different pivot point
@@ -117,7 +185,8 @@ export function process() {
             obj.y = calculateLerp(obj.y, obj.ty, GameState.LERPP);
             if (obj.EYES !== null) { obj.EYES.x = obj.x; obj.EYES.y = obj.y; }
             // const offset = obj.width / 4;
-            obj.onViewUpdate();
+
+            // obj.onViewUpdate();
             if (obj.EYES1 !== null) {
                 const rxy = rotate_by_pivot(obj.x, obj.y, obj.rotation, obj.width / 3.5, -obj.width / 5);
                 obj.EYES1.x = rxy[0];//obj.x + Math.cos(obj.rotation - 0.85) * obj.width/2 * 0.60;
@@ -151,8 +220,8 @@ export function process() {
     //GameState.PIXICam.x++
     //GameState.PIXICam.x = calculateLerp(GameState.PIXICam.x, CX , 0.1);
     //GameState.PIXICam.y = calculateLerp(GameState.PIXICam.y, CY , 0.1);
-    GameState.PIXICam.pivot.x = calculateLerp(GameState.PIXICam.pivot.x, GameState.pivotX, 0.1);
-    GameState.PIXICam.pivot.y = calculateLerp(GameState.PIXICam.pivot.y, GameState.pivotY, 0.1);
+    GameState.PIXICam.pivot.x = calculateLerp(GameState.PIXICam.pivot.x, GameState.pivotX, 0.2);
+    GameState.PIXICam.pivot.y = calculateLerp(GameState.PIXICam.pivot.y, GameState.pivotY, 0.2);
     GameState.PIXICam.x = PIXIApp.screen.width / 2;
     GameState.PIXICam.y = PIXIApp.screen.height / 2;
 
@@ -245,7 +314,7 @@ export function onUpdate(pId: number, data: any) {
                 //console.log('CreateCircle ' + obj[0])
                 //console.log(obj)
                 //GameState.gameObjects.dynamics[id] = GFX.add.image(obj[1], obj[2], 'd' + obj[0]);//type
-                GameState.gameObjects.dynamics[id] = CreateCircle(bodyTexture1, obj[1], obj[2], obj[3], 1);
+                GameState.gameObjects.dynamics[id] = CreateCircle(TEXTURE_CIRCLE, bodyTexture1, obj[1], obj[2], obj[3], 1);
                 //let COLORS =  ["f5e0dc", "f2cdcd", "f5c2e7", "cba6f7", "f38ba8", "eba0ac", "fab387", "f9e2af",
                 //"a6e3a1", "94e2d5", "89dceb", "74c7ec", "89b4fa", "b4befe"];
                 //COLORS = ['EAB999', '00ff88', 'ff4400', '0088ff', 'aa44ff', 'ffaa00']
@@ -286,26 +355,27 @@ export function onUpdate(pId: number, data: any) {
                 existingObj.ty = obj[2];
                 existingObj.width = obj[5];
                 existingObj.rotation = obj[8];
-                if (obj[14] === 0) {
-                    existingObj.height = obj[6] * 1.4; //stretch
-                } else {
-                    existingObj.height = obj[6];
-                }
+                existingObj.height = obj[6];
+                // if (obj[14] === BODY) {
+                //     existingObj.height = obj[6] * 1.4; //stretch
+                // } else {
+                //     existingObj.height = obj[6];
+                // }
                 //                existingObj.rotation = obj[8] +  0.785398  * 2;
 
                 if (existingObj.EYES !== null) {
-                    existingObj.EYES.width = obj[5];
-                    existingObj.EYES.height = obj[6];
+                    // existingObj.EYES.width = obj[5];
+                    // existingObj.EYES.height = obj[6];
                     existingObj.EYES.rotation = obj[8];
                 }
                 if (existingObj.EYES1 !== null) {
-                    existingObj.EYES1.width = obj[5];
-                    existingObj.EYES1.height = obj[6];
+                    // existingObj.EYES1.width = obj[5];
+                    // existingObj.EYES1.height = obj[6];
                     existingObj.EYES1.rotation = obj[8];
                 }
                 if (existingObj.EYES2 !== null) {
-                    existingObj.EYES2.width = obj[5];
-                    existingObj.EYES2.height = obj[6];
+                    // existingObj.EYES2.width = obj[5];
+                    // existingObj.EYES2.height = obj[6];
                     existingObj.EYES2.rotation = obj[8];
                 }
 
@@ -313,7 +383,7 @@ export function onUpdate(pId: number, data: any) {
                 existingObj.GLOW.height = obj[6] * 2;
                 existingObj.GLOW.rotation = obj[8];
 
-                if (obj[15] === 1) {// && existingObj.filters === null){
+                if (obj[15] === MOUSE_CLICKED) {// && existingObj.filters === null){
                     //                    existingObj.filters = [GameState.PIXICam.GLOW_FILTER];//ON GLOW
                     //console.log("ON")
                     //fade in / out GLOW
@@ -363,7 +433,7 @@ export function onUpdate(pId: number, data: any) {
                     //existingObj.tint = rgbToHex(aff, aff, aff );
 
                 }
-                if (obj[15] === 0) {// && existingObj.filters !== null){
+                if (obj[15] === MOUSE_NOT_CLICKED) {// && existingObj.filters !== null){
                     //                    existingObj.filters = null;//OFF
                     //console.log("OFF")
                     //existingObj.GLOW.alpha = 0;
@@ -397,28 +467,29 @@ export function onUpdate(pId: number, data: any) {
                 //console.log(obj)
                 //GameState.gameObjects.units[id] = GFX.add.image(obj[1], obj[2], 'd' + obj[0]);//type
                 let tempObject: any;
+                const tint = COLORS[obj[13]];;//index based
                 if (obj[14] === HEAD_EYES) {//Head/Eyes
-                    tempObject = CreateCircle(headTexture, obj[1], obj[2], obj[3], 1);
+                    tempObject = CreateCircle(BODY_CIRCLE, null, obj[1], obj[2], obj[3], 1, 0, tint);
                     if (id === pId.toString()) {//Extra Glow etc
                         tempObject.EYES = null;
-                        tempObject.EYES1 = CreateCircle(eyeTexture, obj[1], obj[2], obj[3] + 1, 1);
-                        tempObject.EYES1.width = obj[5]; tempObject.EYES1.height = obj[6];
-                        tempObject.EYES2 = CreateCircle(eyeTexture, obj[1], obj[2], obj[3] + 1, 1);
-                        tempObject.EYES2.width = obj[5]; tempObject.EYES2.height = obj[6];
+                        tempObject.EYES1 = CreateCircle(ONE_EYE, null, obj[1], obj[2], obj[3] + 1, 1);
+                        // tempObject.EYES1.width = obj[5]; tempObject.EYES1.height = obj[6];
+                        tempObject.EYES2 = CreateCircle(ONE_EYE, null, obj[1], obj[2], obj[3] + 1, 1);
+                        // tempObject.EYES2.width = obj[5]; tempObject.EYES2.height = obj[6];
                     }
                     else {
                         tempObject.EYES1 = null; tempObject.EYES2 = null;//non player
-                        tempObject.EYES = CreateCircle(eyesTexture, obj[1], obj[2], obj[3] + 1, 1);
-                        tempObject.EYES.width = obj[5];
-                        tempObject.EYES.height = obj[6];
+                        tempObject.EYES = CreateCircle(TWO_EYES, null, obj[1], obj[2], obj[3] + 1, 1);
+                        // tempObject.EYES.width = obj[5];
+                        // tempObject.EYES.height = obj[6];
                     }
                 }
                 else {
-                    tempObject = CreateCircle(bodyTexture4, obj[1], obj[2], obj[3], 1);
+                    tempObject = CreateCircle(BODY_CIRCLE, null, obj[1], obj[2], obj[3], 1, 0, tint);
                     tempObject.EYES = null; tempObject.EYES1 = null; tempObject.EYES2 = null;
                 }
 
-                tempObject.GLOW = CreateCircle(glowTexture, obj[1], obj[2], obj[3] - 1, 1);
+                tempObject.GLOW = CreateCircle(TEXTURE_CIRCLE, glowTexture, obj[1], obj[2], obj[3] - 1, 1);
                 tempObject.GLOW.alpha = 0.5;
                 tempObject.GLOW_DIR = 0;//RandInt(1);
                 tempObject.GLOW.width = obj[5] * 2;
@@ -428,8 +499,8 @@ export function onUpdate(pId: number, data: any) {
 
                 //let COLORS =  ["f5e0dc", "f2cdcd", "f5c2e7", "cba6f7", "f38ba8", "eba0ac", "fab387", "f9e2af",
                 //"a6e3a1", "94e2d5", "89dceb", "74c7ec", "89b4fa", "b4befe"];
-                tempObject.tint = COLORS[obj[13]];//index based
-                tempObject.COLOR = tempObject.tint;//Save Base color
+                tempObject.tint = tint;
+                tempObject.COLOR = tint;//Save Base color
                 //COLORS[RandInt(COLORS.length - 1)];//rgbToHex(RandInt(256), RandInt(256), RandInt(256));
 
                 tempObject.tx = obj[1];
@@ -471,7 +542,7 @@ function onResize() {
     const screenWidth = window.innerWidth;
     const screenHeight = window.innerHeight;
 
-    fitFIX(true, GameState.PIXICam, screenWidth, screenHeight, 512, 512)
+    fitFIX(true, GameState.PIXICam, screenWidth, screenHeight, GameState.viewScreenSize.width, GameState.viewScreenSize.height);
 
     if (GameState.PIXICam) {
         //PIXICam.resize(screenWidth, screenHeight); // Update the viewport's size
@@ -557,6 +628,7 @@ async function setupGraphic() {
         backgroundColor: 0x000000,
         antialias: true, // Smooth pixelated edges
         resizeTo: window, // Auto-resize target
+        resolution: window.devicePixelRatio
     });
 
     console.log(PIXIApp.renderer)
@@ -687,7 +759,6 @@ async function setupGraphic() {
     // Set it to fill the screen
     bg.width = GameState.mapWH;//PIXIApp.screen.width;
     bg.height = GameState.mapWH;//PIXIApp.screen.height;
-    // Tint it to whatever color you want, here red
     bg.tint = 0x111111;
     // Add a click handler
     bg.interactive = true;
